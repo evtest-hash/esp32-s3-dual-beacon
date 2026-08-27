@@ -1,0 +1,25 @@
+# Target chip is written into defaults so a fresh environment (CI container)
+# can build without needing set-target
+CONFIG_IDF_TARGET="esp32s3"
+
+# Assumes the 8MB part the vendor documents; unverified on hardware
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# The default 1MB app partition is too tight. The large variant keeps the same
+# nvs/phy_init/factory offsets, so the README's flashing addresses still apply.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# Bluetooth: NimBLE only
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+
+# This device only advertises, so the scanning and central roles are off.
+# The NimBLE host itself is still enabled.
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+
+# WiFi and BLE software coexistence
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y

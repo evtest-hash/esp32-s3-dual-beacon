@@ -11,17 +11,25 @@ The onboard blue LED blinks at 1 Hz while the firmware is running. It is a liven
 
 > **This firmware has never run on real hardware.** The host unit tests pass and it compiles under ESP-IDF v5.5.5, but no radio behavior has ever been observed on an actual chip. See [Hardware verification status](#hardware-verification-status).
 
+## Layout
+
+| | |
+|---|---|
+| [`hardware/`](hardware/) | Pin assignments, component values and flashing notes for the board, transcribed from the vendor schematic |
+| [`firmware/`](firmware/) | The ESP-IDF project: sources, config and host unit tests |
+
 ## Changing parameters
 
-Every tunable value lives in a single file, **`main/beacon_config.h`**: SSID prefix, AP password, channel, the iBeacon UUID and reference transmit power, advertising interval, heartbeat period. Edit, rebuild, and reflash.
+Every tunable value lives in a single file, **`firmware/main/beacon_config.h`**: SSID prefix, AP password, channel, the iBeacon UUID and reference transmit power, advertising interval, heartbeat period. Edit, rebuild, and reflash.
 
-`SSID_PREFIX` and `AP_PASSWORD` are protected by compile-time length asserts -- an out-of-range value fails the build with an explanatory message instead of silently producing a broken firmware image.
+`SSID_PREFIX`, `AP_PASSWORD`, `AP_CHANNEL`, `WIFI_BEACON_INTERVAL_TU` and `BLE_ADV_INTERVAL_MS` are protected by compile-time asserts -- an out-of-range value fails the build with an explanatory message instead of silently producing a broken firmware image.
 
-Note: the AP is an **open network** (`AP_PASSWORD` is `""`). This is intentional, not a placeholder -- see the comment in `beacon_config.h` for why (the AP offers no services worth protecting, and a cosmetic password would only be misleading in a public repo).
+Note: the AP is an **open network** (`AP_PASSWORD` is `""`). This is intentional, not a placeholder -- see the comment in `firmware/main/beacon_config.h` for why (the AP offers no services worth protecting, and a cosmetic password would only be misleading in a public repo).
 
 ## Local build
 
 ```bash
+cd firmware
 . $IDF_PATH/export.sh
 idf.py build
 ```
@@ -37,12 +45,12 @@ This project was built and tested against ESP-IDF v5.5.5.
 Host unit tests (no ESP-IDF required, runs in about a second):
 
 ```bash
-./test/run.sh
+./firmware/test/run.sh
 ```
 
 ## How device identity is derived
 
-The SSID suffix and the iBeacon's Major/Minor all come from the last three bytes of the chip's softAP MAC, one-to-one.
+The SSID suffix and the iBeacon's Major/Minor all come from the last three bytes of the chip's softAP MAC, one-to-one. See [`hardware/`](hardware/) for the pin and part details this depends on.
 
 **Note**: BLE advertising uses the chip's Bluetooth MAC (base MAC + 2), while Major/Minor are derived from the softAP MAC (base MAC + 1). So the device address you see in a tool like nRF Connect will **not** match Major/Minor numerically -- that's expected, not a bug.
 

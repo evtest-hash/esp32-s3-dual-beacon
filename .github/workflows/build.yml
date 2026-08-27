@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run host unit tests
+        working-directory: firmware
         run: ./test/run.sh
 
   firmware:
@@ -34,12 +35,14 @@ jobs:
 
       - name: Build firmware
         shell: bash
+        working-directory: firmware
         run: |
           . "$IDF_PATH/export.sh"
           idf.py build
 
       - name: Collect flashing artifacts
         shell: bash
+        working-directory: firmware
         run: |
           mkdir -p artifacts
           cp build/dual_beacon.bin                   artifacts/
@@ -50,5 +53,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dual-beacon-firmware
-          path: artifacts/
+          path: firmware/artifacts/
           if-no-files-found: error

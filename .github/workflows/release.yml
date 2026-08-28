@@ -1,0 +1,173 @@
+name: release
+
+# Publishing happens on a tag and nowhere else. Pushing `v1.2.3` builds the
+# firmware, attaches the binaries to a GitHub release, and deploys the web
+# installer that flashes exactly those binaries. Building without publishing
+# is build.yml.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # create the release and upload the binaries to it
+  pages: write      # deploy the web installer
+  id-token: write   # required by actions/deploy-pages
+
+# Pages allows one deployment at a time. Don't cancel one in flight: a
+# half-deployed site would serve a manifest pointing at the wrong binaries.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  firmware:
+    uses: ./.github/workflows/_firmware.yml
+
+  release:
+    runs-on: ubuntu-latest
+    needs: firmware
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dual-beacon-firmware
+          path: artifacts
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/bootloader.bin \
+            artifacts/partition-table.bin \
+            artifacts/dual_beacon.bin
+
+  pages:
+    runs-on: ubuntu-latest
+    needs: firmware
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dual-beacon-firmware
+          path: firmware-bins
+
+      # The site is web/ with the binaries dropped in beside it, so the
+      # manifest and the .bin files it names are same-origin and no CORS
+      # configuration is involved.
+      - name: Assemble the site
+        run: |
+          cp -r web _site
+          mkdir -p _site/firmware
+          cp firmware-bins/*.bin _site/firmware/
+
+      # web/manifest.json is committed with a placeholder so it stays a valid,
+      # locally previewable file. The tag is the published version.
+      - name: Stamp the version
+        run: |
+          sed -i "s|\"version\": \"0.0.0-dev\"|\"version\": \"$GITHUB_REF_NAME\"|" _site/manifest.json
+
+      # Nothing downstream checks these offsets, and a wrong one produces a
+      # brick rather than an error, so check them here.
+      - name: Check the manifest against the binaries
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+
+          site = pathlib.Path("_site")
+          manifest = json.loads((site / "manifest.json").read_text())
+
+          problems = []
+          if manifest["version"] == "0.0.0-dev":
+              problems.append("version placeholder was not replaced")
+
+          builds = manifest["builds"]
+          if len(builds) != 1 or builds[0]["chipFamily"] != "ESP32-S3":
+              problems.append("expected exactly one ESP32-S3 build")
+
+          parts = builds[0]["parts"]
+          # Fixed by the partition table; see the README.
+          expected = {0x0: "bootloader", 0x8000: "partition-table", 0x10000: "dual_beacon"}
+          if {p["offset"] for p in parts} != set(expected):
+              problems.append(f"offsets {[hex(p['offset']) for p in parts]} are not {[hex(o) for o in expected]}")
+
+          for part in parts:
+              path = site / part["path"]
+              if not path.is_file():
+                  problems.append(f"manifest names a missing file: {part['path']}")
+                  continue
+              stem = expected.get(part["offset"])
+              if stem and not path.name.startswith(stem):
+                  problems.append(f"{part['path']} is at offset {part['offset']:#x}, which belongs to {stem}")
+              print(f"ok  {part['path']:34} {part['offset']:#8x}  {path.stat().st_size} bytes")
+
+          if problems:
+              print("\n".join("FAIL " + p for p in problems), file=sys.stderr)
+              sys.exit(1)
+
+          print(f"\nmanifest version {manifest['version']}")
+          PY
+
+      # A missing translation renders as an empty element rather than an error,
+      # so nothing at runtime would tell you about it.
+      - name: Check the translations
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re, sys
+
+          html = (pathlib.Path("_site") / "index.html").read_text()
+          blob = re.search(r'<script type="application/json" id="i18n">(.*?)</script>', html, re.S)
+          if not blob:
+              sys.exit("FAIL no i18n block in index.html")
+          text = json.loads(blob.group(1))
+
+          # Keys the page reads from JS rather than through a data-i18n attribute.
+          from_script = {"title", "langLabel"}
+          used = set(re.findall(r'data-i18n(?:-html)?="([^"]+)"', html)) | from_script
+
+          problems = []
+          languages = sorted(text)
+          if len(languages) < 2:
+              problems.append(f"only one language: {languages}")
+
+          reference = set(text[languages[0]])
+          for language in languages[1:]:
+              missing = reference - set(text[language])
+              extra = set(text[language]) - reference
+              if missing:
+                  problems.append(f"{language} is missing {sorted(missing)}")
+              if extra:
+                  problems.append(f"{language} has keys no other language does: {sorted(extra)}")
+
+          for language in languages:
+              for key, value in text[language].items():
+                  if not value.strip():
+                      problems.append(f"{language}.{key} is empty")
+
+          for key in sorted(used - reference):
+              problems.append(f"the page uses {key!r}, which no language defines")
+          for key in sorted(reference - used):
+              problems.append(f"{key!r} is defined but the page never uses it")
+
+          if problems:
+              print("\n".join("FAIL " + p for p in problems), file=sys.stderr)
+              sys.exit(1)
+
+          print(f"{len(reference)} keys x {len(languages)} languages: {', '.join(languages)}")
+          PY
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

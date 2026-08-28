@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32-S3 Dual Beacon — web installer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root {
+    --bench: #e9ecf1;
+    --panel: #ffffff;
+    --ink:   #0e141b;
+    --muted: #5a6673;
+    --rule:  #cbd2db;
+    --led:   #1f6feb;
+
+    /* Archivo and IBM Plex Mono carry no CJK glyphs. The system CJK faces
+     * pick up the Chinese text; downloading a webfont for it would cost
+     * megabytes on a page whose whole point is to work before anything is
+     * installed. */
+    --display: "Archivo", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Microsoft YaHei", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bench: #0d1117;
+      --panel: #161b22;
+      --ink:   #e6edf3;
+      --muted: #8b949e;
+      --rule:  #2a313a;
+      --led:   #4c93ff;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bench);
+    color: var(--ink);
+    font-family: var(--display);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--led); }
+
+  :focus-visible {
+    outline: 2px solid var(--led);
+    outline-offset: 3px;
+  }
+
+  .wrap {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* ---- masthead ---- */
+
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem 1.5rem;
+    flex-wrap: wrap;
+    padding: 1.5rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    letter-spacing: 0.02em;
+  }
+  .masthead nav {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+  }
+  .masthead .repo { color: var(--muted); }
+
+  .lang {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--led);
+    cursor: pointer;
+  }
+  .lang:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---- hero ---- */
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    padding: 4rem 0 3.5rem;
+  }
+  @media (min-width: 56rem) {
+    .hero {
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 4rem;
+      align-items: start;
+    }
+  }
+
+  h1 {
+    font-size: clamp(2.25rem, 6.5vw, 3.5rem);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin: 0 0 2rem;
+    text-wrap: balance;
+  }
+  /* Chinese has no letterspacing to tighten and no descender rhythm to match. */
+  :root[lang="zh-CN"] h1 { letter-spacing: -0.01em; line-height: 1.15; }
+
+  /* ---- steps ---- */
+
+  .steps {
+    list-style: none;
+    margin: 0 0 2rem;
+    padding: 0;
+    display: grid;
+    gap: 0.625rem;
+    counter-reset: step;
+    max-width: 30rem;
+  }
+  .steps li {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    gap: 0.875rem;
+    align-items: baseline;
+  }
+  .steps li::before {
+    counter-increment: step;
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--led);
+  }
+
+  /* ---- call to action ---- */
+
+  .cta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .install {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1.5rem;
+    border: none;
+    border-radius: 2px;
+    background: var(--led);
+    color: #fff;
+    font-family: var(--display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+  }
+  .install:hover { filter: brightness(1.08); }
+  .install::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .version {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .requirement {
+    margin: 0.875rem 0 0;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .notice {
+    padding: 1rem 1.125rem;
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--led);
+    background: var(--panel);
+    font-size: 0.9375rem;
+    max-width: 34rem;
+  }
+  .notice p { margin: 0; }
+
+  .hints {
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+    max-width: 30rem;
+  }
+  .hints b { font-weight: 600; color: var(--ink); }
+
+  /* ---- scan card: what the device looks like from outside ---- */
+
+  .scan {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+
+  .scan-row {
+    padding: 1.25rem 1.375rem;
+    display: grid;
+    gap: 0.375rem;
+  }
+  .scan-row + .scan-row { border-top: 1px solid var(--rule); }
+
+  .scan-label {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .scan-value {
+    font-family: var(--mono);
+    font-size: 1.0625rem;
+    letter-spacing: -0.01em;
+    word-break: break-all;
+  }
+  .scan-value .var { color: var(--led); }
+
+  .scan-meta {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .scan-caption {
+    margin: 0.875rem 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  /* ---- heartbeat: 1 Hz, the firmware's own blink rate ---- */
+
+  .heartbeat {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 1.25rem 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+  .heartbeat .dot {
+    flex: none;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: var(--led);
+    animation: blink 1s steps(1, end) infinite;
+  }
+  @keyframes blink {
+    0%, 50%  { opacity: 1; }
+    50.01%, 100% { opacity: 0.15; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .heartbeat .dot { animation: none; opacity: 1; }
+  }
+
+  /* ---- footer ---- */
+
+  footer {
+    padding: 2rem 0 4rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  footer p { margin: 0 0 0.75rem; max-width: 44rem; }
+  footer p:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span>ESP32-S3 Dual Beacon</span>
+    <nav>
+      <a class="repo" href="https://github.com/evtest-hash/esp32-s3-dual-beacon">github.com/evtest-hash/esp32-s3-dual-beacon</a>
+      <button class="lang" id="lang" type="button"></button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1 data-i18n="headline"></h1>
+
+        <ol class="steps">
+          <li data-i18n="step1"></li>
+          <li data-i18n="step2"></li>
+          <li data-i18n="step3"></li>
+        </ol>
+
+        <div class="cta">
+          <esp-web-install-button manifest="manifest.json">
+            <button class="install" slot="activate" data-i18n="install"></button>
+            <div class="notice" slot="unsupported">
+              <p data-i18n-html="unsupported"></p>
+            </div>
+            <div class="notice" slot="not-allowed">
+              <p data-i18n-html="notAllowed"></p>
+            </div>
+          </esp-web-install-button>
+          <span class="version" id="version"></span>
+        </div>
+
+        <p class="requirement" data-i18n="requirement"></p>
+
+        <ul class="hints">
+          <li data-i18n-html="hintPort"></li>
+          <li data-i18n-html="hintDead"></li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="scan">
+          <div class="scan-row">
+            <span class="scan-label">WiFi · SSID</span>
+            <span class="scan-value">S3-BEACON-<span class="var">XXXXXX</span></span>
+            <span class="scan-meta" data-i18n="scanWifiMeta"></span>
+          </div>
+          <div class="scan-row">
+            <span class="scan-label">BLE · iBeacon</span>
+            <span class="scan-value">4E211BD8-3977-4319-A93A-CDB7921A9D77</span>
+            <span class="scan-meta" data-i18n="scanBleMeta"></span>
+          </div>
+        </div>
+        <p class="scan-caption" data-i18n="scanCaption"></p>
+      </div>
+    </div>
+
+    <div class="heartbeat">
+      <span class="dot" aria-hidden="true"></span>
+      <span data-i18n="heartbeat"></span>
+    </div>
+  </main>
+
+  <footer>
+    <p data-i18n-html="footerCredit"></p>
+  </footer>
+
+</div>
+
+<!-- Kept as JSON rather than a JS object so release.yml can parse it and fail
+     the deploy when a key is missing from one of the languages. -->
+<script type="application/json" id="i18n">
+{
+  "en": {
+    "title": "ESP32-S3 Dual Beacon — web installer",
+    "headline": "Turn your dongle into a beacon.",
+    "step1": "Plug your MuseLab ESP32-S3 Dongle into a USB port.",
+    "step2": "Click Install firmware and pick the usbmodem port.",
+    "step3": "It starts broadcasting as soon as it reboots.",
+    "install": "Install firmware",
+    "unsupported": "Your browser can't open serial ports. Try Chrome, Edge, Opera or Firefox 151+ on a desktop, or <a href=\"https://github.com/evtest-hash/esp32-s3-dual-beacon#flashing-from-a-release\">install from the command line</a>.",
+    "notAllowed": "Serial access needs a secure connection. Open this page over <code>https://</code>.",
+    "requirement": "Works in Chrome, Edge, Opera and Firefox 151+ on desktop.",
+    "hintPort": "<b>No port to choose from?</b> Hold the BOOT button while you plug the dongle back in.",
+    "hintDead": "<b>Nothing happens after installing?</b> Unplug the dongle and plug it in again.",
+    "scanWifiMeta": "An open network on channel 1, with nothing to connect to.",
+    "scanBleMeta": "The major and minor numbers come from your chip's MAC address.",
+    "scanCaption": "This is how your dongle looks to a phone or a scanner. Every board gets its own identity.",
+    "heartbeat": "The blue LED blinks once a second while the firmware runs, so you can see at a glance that it is working.",
+    "footerCredit": "Binaries come from the matching <a href=\"https://github.com/evtest-hash/esp32-s3-dual-beacon/releases\">release</a>. MIT licensed. Powered by <a href=\"https://esphome.github.io/esp-web-tools/\">ESP Web Tools</a>.",
+    "langLabel": "Switch to Chinese"
+  },
+  "zh-CN": {
+    "title": "ESP32-S3 Dual Beacon — 网页安装",
+    "headline": "把你的 Dongle 变成一个信标。",
+    "step1": "把 MuseLab ESP32-S3 Dongle 插进 USB 口。",
+    "step2": "点击「安装固件」，选择 usbmodem 端口。",
+    "step3": "重启之后它就开始广播了。",
+    "install": "安装固件",
+    "unsupported": "你的浏览器无法打开串口。请在桌面端使用 Chrome、Edge、Opera 或 Firefox 151+，也可以<a href=\"https://github.com/evtest-hash/esp32-s3-dual-beacon#flashing-from-a-release\">用命令行安装</a>。",
+    "notAllowed": "串口访问需要安全连接，请通过 <code>https://</code> 打开本页。",
+    "requirement": "支持桌面版 Chrome、Edge、Opera 和 Firefox 151+。",
+    "hintPort": "<b>没有端口可选？</b>按住 BOOT 键，然后重新插上 Dongle。",
+    "hintDead": "<b>安装完没有反应？</b>把 Dongle 拔下来再插一次。",
+    "scanWifiMeta": "信道 1 上的开放网络，没有任何可连接的服务。",
+    "scanBleMeta": "Major 和 Minor 来自你的芯片 MAC 地址。",
+    "scanCaption": "这就是你的 Dongle 在手机或扫描工具里的样子。每块板都有自己的身份。",
+    "heartbeat": "固件运行时，蓝色 LED 每秒闪一次，一眼就能看出它在工作。",
+    "footerCredit": "固件来自对应的 <a href=\"https://github.com/evtest-hash/esp32-s3-dual-beacon/releases\">release</a>，MIT 许可。由 <a href=\"https://esphome.github.io/esp-web-tools/\">ESP Web Tools</a> 提供支持。",
+    "langLabel": "切换到英文"
+  }
+}
+</script>
+
+<script>
+  (function () {
+    var TEXT = JSON.parse(document.getElementById("i18n").textContent);
+    var toggle = document.getElementById("lang");
+
+    function stored(key) {
+      try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    function apply(lang) {
+      var dict = TEXT[lang];
+      document.documentElement.lang = lang;
+      document.title = dict.title;
+      document.querySelectorAll("[data-i18n]").forEach(function (el) {
+        el.textContent = dict[el.dataset.i18n];
+      });
+      document.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+        el.innerHTML = dict[el.dataset.i18nHtml];
+      });
+      // The button offers the other language, so it reads as an action.
+      toggle.textContent = lang === "zh-CN" ? "EN" : "中文";
+      toggle.setAttribute("aria-label", dict.langLabel);
+      try { localStorage.setItem("lang", lang); } catch (e) { /* private mode */ }
+    }
+
+    var initial = stored("lang");
+    if (!TEXT[initial]) {
+      initial = (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+    }
+    apply(initial);
+
+    toggle.addEventListener("click", function () {
+      apply(document.documentElement.lang === "zh-CN" ? "en" : "zh-CN");
+    });
+
+    // The version is whatever release.yml stamped into the manifest, never a
+    // number written into this page by hand.
+    fetch("manifest.json")
+      .then(function (r) { return r.json(); })
+      .then(function (m) { document.getElementById("version").textContent = m.version; })
+      .catch(function () { /* the install dialog shows the version too */ });
+  })();
+</script>
+
+</body>
+</html>

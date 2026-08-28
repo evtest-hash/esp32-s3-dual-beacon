@@ -1,0 +1,14 @@
+{
+  "name": "ESP32-S3 Dual Beacon",
+  "version": "0.0.0-dev",
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "firmware/bootloader.bin", "offset": 0 },
+        { "path": "firmware/partition-table.bin", "offset": 32768 },
+        { "path": "firmware/dual_beacon.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}

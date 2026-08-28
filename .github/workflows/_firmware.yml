@@ -1,0 +1,57 @@
+name: firmware
+
+# Reusable build, shared by build.yml (manual) and release.yml (on tag) so the
+# two entry points can never drift apart. workflow_call is the only trigger:
+# this file does nothing on its own, which is what the leading underscore in
+# the filename is meant to signal.
+on:
+  workflow_call:
+
+jobs:
+  # Host unit tests. No ESP-IDF dependency, finishes in about 5 seconds.
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run host unit tests
+        working-directory: firmware
+        run: ./test/run.sh
+
+  firmware:
+    runs-on: ubuntu-latest
+    needs: host-tests
+    container:
+      image: espressif/idf:v5.5.5
+    steps:
+      - uses: actions/checkout@v4
+
+      # The container's uid doesn't match the checked-out files' owner, so
+      # git calls made during the IDF build to fetch the version number
+      # fail with "dubious ownership".
+      - name: Allow git directory ownership check
+        run: git config --global --add safe.directory '*'
+
+      - name: Build firmware
+        shell: bash
+        working-directory: firmware
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build
+
+      # These three names and the offsets they get flashed at are referenced by
+      # web/manifest.json and by the README. Renaming one means changing both.
+      - name: Collect flashing artifacts
+        shell: bash
+        working-directory: firmware
+        run: |
+          mkdir -p artifacts
+          cp build/dual_beacon.bin                     artifacts/
+          cp build/bootloader/bootloader.bin           artifacts/
+          cp build/partition_table/partition-table.bin artifacts/
+          ls -l artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dual-beacon-firmware
+          path: firmware/artifacts/
+          if-no-files-found: error

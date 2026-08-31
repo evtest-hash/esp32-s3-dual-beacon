@@ -23,8 +23,11 @@ static uint8_t s_own_addr_type;
 /* Reported by ble_beacon_is_advertising() in the heartbeat log. */
 static bool s_adv_running = false;
 
-/* esp_power_level_t is a 3 dBm ladder: level 0 is -24 dBm, level 8 is 0 dBm,
- * level 14 is +18 dBm, and +20 dBm is bolted on at level 15. */
+/* On this chip esp_power_level_t is a 3 dBm ladder of 16 levels: level 0 is
+ * -24 dBm, level 8 is 0 dBm, level 14 is +18 dBm, and +20 dBm is bolted on at
+ * level 15. That range is ESP32-S3's, not every ESP32's -- the original ESP32
+ * has 8 levels spanning -12 to +9 dBm, and quoting its numbers here is a
+ * common way to arrive at the wrong ceiling. */
 static int level_to_dbm(esp_power_level_t level)
 {
     if (level == ESP_PWR_LVL_INVALID) {
@@ -40,11 +43,12 @@ static int level_to_dbm(esp_power_level_t level)
  * the power before that has nothing to set it on.
  *
  * Both the requested and the actual level are logged rather than just the
- * request, because the request is not trustworthy on its own. The ESP-IDF
- * headers contradict each other about the default (one comment says P3, the
- * other P9), and the PHY init data can cap the ceiling below what is asked
- * for. The read-back is the only statement about this chip worth believing --
- * and it is what a measured RSSI delta should be compared against. */
+ * request. What the radio was doing before this call is not something the
+ * headers answer: the controller starts at esp_bt_controller_config_t's
+ * txpwr_dft, while esp_ble_tx_power_set documents its own default for power
+ * types never set. And the PHY init data can cap the result below the request
+ * either way. The read-back is the only statement about this chip worth
+ * believing, and it is what a measured RSSI delta should be compared to. */
 static void set_tx_power(void)
 {
     esp_err_t err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_TX_POWER_LEVEL);

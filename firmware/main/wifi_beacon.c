@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "esp_wifi.h"
+#include "esp_err.h"
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -66,6 +67,27 @@ void wifi_beacon_start(const device_id_t *id)
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    /* Has to be after esp_wifi_start(); before it, the ceiling is whatever the
+     * PHY init data says. Not ESP_ERROR_CHECK: a rejected power setting is no
+     * reason to boot-loop a beacon that is otherwise up and transmitting.
+     *
+     * The driver quantises the request (84 lands on 80, i.e. 20 dBm) and the
+     * PHY init data can cap it lower still, so the value is read back. The
+     * read-back is the number to compare a measured RSSI change against. */
+    esp_err_t pwr_err = esp_wifi_set_max_tx_power(WIFI_MAX_TX_POWER_QDBM);
+    if (pwr_err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_set_max_tx_power failed: %s - staying at the driver default",
+                 esp_err_to_name(pwr_err));
+    }
+
+    int8_t actual_qdbm = 0;
+    if (esp_wifi_get_max_tx_power(&actual_qdbm) == ESP_OK) {
+        ESP_LOGI(TAG, "softAP tx power: requested %d, actual %d quarter-dBm (%d dBm)",
+                 WIFI_MAX_TX_POWER_QDBM, (int)actual_qdbm, (int)actual_qdbm / 4);
+    } else {
+        ESP_LOGW(TAG, "esp_wifi_get_max_tx_power failed - actual tx power unknown");
+    }
 
     ESP_LOGI(TAG, "softAP up: ssid=\"%s\" ch=%d auth=%s beacon=%dTU",
              id->ssid, AP_CHANNEL,

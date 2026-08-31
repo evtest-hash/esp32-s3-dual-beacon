@@ -23,7 +23,13 @@ The onboard blue LED blinks at 1 Hz while the firmware is running. It is a liven
 
 Every tunable value lives in a single file, **`firmware/main/beacon_config.h`**: SSID prefix, AP password, channel, the iBeacon UUID and reference transmit power, advertising interval, heartbeat period. Edit, rebuild, and reflash.
 
-`SSID_PREFIX`, `AP_PASSWORD`, `AP_CHANNEL`, `WIFI_BEACON_INTERVAL_TU` and `BLE_ADV_INTERVAL_MS` are protected by compile-time asserts -- an out-of-range value fails the build with an explanatory message instead of silently producing a broken firmware image.
+`SSID_PREFIX`, `AP_PASSWORD`, `AP_CHANNEL`, `WIFI_BEACON_INTERVAL_TU`, `BLE_ADV_INTERVAL_MS` and `WIFI_MAX_TX_POWER_QDBM` are protected by compile-time asserts -- an out-of-range value fails the build with an explanatory message instead of silently producing a broken firmware image.
+
+### Transmit power
+
+`BLE_TX_POWER_LEVEL` and `WIFI_MAX_TX_POWER_QDBM` set the two radios' transmit power; both default to the maximum the hardware accepts. Neither is trusted blindly: the firmware reads the applied value back from the driver and logs it, because the PHY init data can cap either one below what was asked for.
+
+`IBEACON_TX_POWER` is **not** a transmit power. It is the iBeacon "Measured Power" field -- the RSSI a scanner should see at 1 m -- and scanners divide by it to estimate distance. It is a value to be measured on a real board, and **changing `BLE_TX_POWER_LEVEL` invalidates it**. The shipped `-59` comes from the iBeacon convention and has never been measured on this hardware, so distance estimates from any scanner are currently uncalibrated.
 
 Note: the AP is an **open network** (`AP_PASSWORD` is `""`). This is intentional, not a placeholder -- see the comment in `firmware/main/beacon_config.h` for why (the AP offers no services worth protecting, and a cosmetic password would only be misleading in a public repo).
 

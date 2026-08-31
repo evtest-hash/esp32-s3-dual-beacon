@@ -23,6 +23,18 @@ _Static_assert(sizeof(AP_PASSWORD) == 1 || sizeof(AP_PASSWORD) - 1 >= 8,
 _Static_assert(AP_CHANNEL >= 1 && AP_CHANNEL <= 14,
                "AP_CHANNEL must be 1..14");
 
+/* Maximum softAP transmit power, in quarter-dBm. 84 is the ceiling the API
+ * accepts and maps to 20 dBm. Raising this raises the WiFi TX current peak,
+ * which is already the largest load this board draws and sits behind an LDO
+ * whose rating the vendor schematic does not give -- see hardware/README.md.
+ * The PHY init data can also cap the result below what is asked for, so
+ * wifi_beacon.c reads the value back instead of assuming it took. */
+#define WIFI_MAX_TX_POWER_QDBM    84
+/* esp_wifi_set_max_tx_power returns INVALID_ARG outside this range, which
+ * aborts under ESP_ERROR_CHECK. */
+_Static_assert(WIFI_MAX_TX_POWER_QDBM >= 8 && WIFI_MAX_TX_POWER_QDBM <= 84,
+               "WIFI_MAX_TX_POWER_QDBM must be 8..84 quarter-dBm, i.e. 2..20 dBm");
+
 /* Units of TU (1 TU = 1024us). 100 TU is ~102.4ms */
 #define WIFI_BEACON_INTERVAL_TU   100
 /* Out-of-range makes esp_wifi_set_config return INVALID_ARG, which aborts
@@ -38,7 +50,23 @@ _Static_assert(WIFI_BEACON_INTERVAL_TU >= 100 && WIFI_BEACON_INTERVAL_TU <= 6000
     0x4E, 0x21, 0x1B, 0xD8, 0x39, 0x77, 0x43, 0x19, \
     0xA9, 0x3A, 0xCD, 0xB7, 0x92, 0x1A, 0x9D, 0x77 }
 
-/* Reference RSSI at 1m */
+/* Advertising transmit power: an esp_power_level_t name from esp_bt.h,
+ * ESP_PWR_LVL_N24 (-24 dBm) through ESP_PWR_LVL_P20 (+20 dBm) in 3 dBm steps.
+ * Deliberately not _Static_assert-ed: this header is compiled by the host unit
+ * tests, which have no ESP-IDF, so the enum is not in scope here. A wrong name
+ * is still caught at compile time, in ble_beacon.c. */
+#define BLE_TX_POWER_LEVEL        ESP_PWR_LVL_P20
+
+/* Reference RSSI at 1m -- the iBeacon "Measured Power" field. This is NOT the
+ * transmit power (that is BLE_TX_POWER_LEVEL above); it is the RSSI a scanner
+ * should see at 1 m, and scanners divide by it to estimate distance.
+ *
+ * It is therefore a MEASURED quantity, and changing BLE_TX_POWER_LEVEL
+ * invalidates it: every scanner's distance estimate is then wrong by exactly
+ * how stale this is. -59 was taken from the iBeacon convention and has never
+ * been measured on this board, whose antenna matching network is itself
+ * under-specified (hardware/README.md). Measure the median RSSI at 1 m and
+ * write it back here. */
 #define IBEACON_TX_POWER          ((int8_t)-59)
 /* Advertising interval (ms). A coexistence choice, not a protocol floor. */
 #define BLE_ADV_INTERVAL_MS       100

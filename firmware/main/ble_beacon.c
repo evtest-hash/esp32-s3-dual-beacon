@@ -5,6 +5,7 @@
 
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_bt.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -21,6 +22,46 @@ static uint8_t s_own_addr_type;
 
 /* Reported by ble_beacon_is_advertising() in the heartbeat log. */
 static bool s_adv_running = false;
+
+/* esp_power_level_t is a 3 dBm ladder: level 0 is -24 dBm, level 8 is 0 dBm,
+ * level 14 is +18 dBm, and +20 dBm is bolted on at level 15. */
+static int level_to_dbm(esp_power_level_t level)
+{
+    if (level == ESP_PWR_LVL_INVALID) {
+        return 0;
+    }
+    if (level == ESP_PWR_LVL_P20) {     /* also catches the deprecated P21 alias */
+        return 20;
+    }
+    return ((int)level - 8) * 3;
+}
+
+/* Runs after nimble_port_init(), which is what enables the controller: setting
+ * the power before that has nothing to set it on.
+ *
+ * Both the requested and the actual level are logged rather than just the
+ * request, because the request is not trustworthy on its own. The ESP-IDF
+ * headers contradict each other about the default (one comment says P3, the
+ * other P9), and the PHY init data can cap the ceiling below what is asked
+ * for. The read-back is the only statement about this chip worth believing --
+ * and it is what a measured RSSI delta should be compared against. */
+static void set_tx_power(void)
+{
+    esp_err_t err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_TX_POWER_LEVEL);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_ble_tx_power_set failed: %s - advertising at the controller default",
+                 esp_err_to_name(err));
+    }
+
+    esp_power_level_t actual = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV);
+    if (actual == ESP_PWR_LVL_INVALID) {
+        ESP_LOGW(TAG, "adv tx power: controller reports an invalid level");
+        return;
+    }
+
+    ESP_LOGI(TAG, "adv tx power: requested %d dBm, controller reports %d dBm",
+             level_to_dbm(BLE_TX_POWER_LEVEL), level_to_dbm(actual));
+}
 
 static void start_advertising(void)
 {
@@ -115,6 +156,8 @@ void ble_beacon_start(const device_id_t *id)
                  esp_err_to_name(err));
         return;
     }
+
+    set_tx_power();
 
     ble_hs_cfg.sync_cb  = on_sync;
     ble_hs_cfg.reset_cb = on_reset;

@@ -134,6 +134,79 @@ static void test_ibeacon_zero_values(void)
     CHECK(buf[29] == 0, "0 is written when tx_power is 0");
 }
 
+
+static void test_scan_rsp_name_comes_from_the_mac(void)
+{
+    printf("test_scan_rsp_name_comes_from_the_mac\n");
+    /* The name is never a literal: it is whatever device_id_derive built out
+     * of this board's own MAC, so two boards never advertise the same one. */
+    const uint8_t mac[6] = { 0x68, 0xEE, 0x8F, 0x6D, 0x3F, 0x21 };
+    device_id_t id;
+    device_id_derive(mac, "S3-BEACON", &id);
+
+    uint8_t buf[SCAN_RSP_MAX_LEN];
+    size_t len = scan_rsp_build_name(id.ssid, buf);
+
+    CHECK(len == 18, "16-char name yields 18 bytes: length, type, 16 chars");
+    CHECK(buf[0] == 17, "length byte counts the type byte plus the name");
+    CHECK(buf[1] == 0x09, "type is Complete Local Name");
+    CHECK(memcmp(buf + 2, "S3-BEACON-6D3F21", 16) == 0, "the name is the MAC-derived SSID");
+}
+
+static void test_scan_rsp_name_differs_with_the_mac(void)
+{
+    printf("test_scan_rsp_name_differs_with_the_mac\n");
+    const uint8_t mac_a[6] = { 0x68, 0xEE, 0x8F, 0x6D, 0x3F, 0x21 };
+    const uint8_t mac_b[6] = { 0x68, 0xEE, 0x8F, 0x11, 0x22, 0x33 };
+    device_id_t a, b;
+    uint8_t buf_a[SCAN_RSP_MAX_LEN], buf_b[SCAN_RSP_MAX_LEN];
+
+    device_id_derive(mac_a, "S3-BEACON", &a);
+    device_id_derive(mac_b, "S3-BEACON", &b);
+    size_t len_a = scan_rsp_build_name(a.ssid, buf_a);
+    size_t len_b = scan_rsp_build_name(b.ssid, buf_b);
+
+    CHECK(len_a == len_b && len_a > 0, "same prefix gives the same length");
+    CHECK(memcmp(buf_a, buf_b, len_a) != 0, "two boards do not advertise the same name");
+}
+
+static void test_scan_rsp_empty_name(void)
+{
+    printf("test_scan_rsp_empty_name\n");
+    uint8_t buf[SCAN_RSP_MAX_LEN];
+    memset(buf, 0xAA, sizeof(buf));
+
+    CHECK(scan_rsp_build_name("", buf) == 0, "an empty name writes nothing");
+    CHECK(buf[0] == 0xAA, "the buffer is left untouched when there is nothing to write");
+}
+
+static void test_scan_rsp_longest_name_that_fits(void)
+{
+    printf("test_scan_rsp_longest_name_that_fits\n");
+    /* 31 bytes of AD space, 2 of them the length and type fields. */
+    const char name[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123";   /* 29 chars */
+    uint8_t buf[SCAN_RSP_MAX_LEN];
+    size_t len = scan_rsp_build_name(name, buf);
+
+    CHECK(len == SCAN_RSP_MAX_LEN, "29 chars fill the scan response exactly");
+    CHECK(buf[1] == 0x09, "a name that fits is still Complete, not Shortened");
+    CHECK(memcmp(buf + 2, name, 29) == 0, "all 29 chars are written");
+}
+
+static void test_scan_rsp_name_too_long_is_shortened(void)
+{
+    printf("test_scan_rsp_name_too_long_is_shortened\n");
+    const char name[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234";  /* 30 chars, one too many */
+    uint8_t buf[SCAN_RSP_MAX_LEN];
+    memset(buf, 0xAA, sizeof(buf));
+    size_t len = scan_rsp_build_name(name, buf);
+
+    CHECK(len == SCAN_RSP_MAX_LEN, "the result never exceeds the 31-byte AD space");
+    CHECK(buf[0] == 30, "the length byte matches what was actually written");
+    CHECK(buf[1] == 0x08, "a truncated name is advertised as Shortened, not Complete");
+    CHECK(memcmp(buf + 2, name, 29) == 0, "the first 29 chars are kept");
+}
+
 int main(void)
 {
     test_derive_typical();
@@ -144,6 +217,11 @@ int main(void)
     test_ibeacon_payload_layout();
     test_ibeacon_payload_writes_every_byte();
     test_ibeacon_zero_values();
+    test_scan_rsp_name_comes_from_the_mac();
+    test_scan_rsp_name_differs_with_the_mac();
+    test_scan_rsp_empty_name();
+    test_scan_rsp_longest_name_that_fits();
+    test_scan_rsp_name_too_long_is_shortened();
 
     printf("\n%s (%d failures)\n", g_fail ? "FAILED" : "PASSED", g_fail);
     return g_fail ? 1 : 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* SSID: max 32 chars + NUL */
 #define DEVICE_ID_SSID_MAX 33
@@ -29,3 +30,17 @@ void device_id_derive(const uint8_t mac[6], const char *ssid_prefix, device_id_t
  *   [29]     Measured Power  */
 void ibeacon_build_payload(const uint8_t uuid[16], uint16_t major, uint16_t minor,
                            int8_t tx_power, uint8_t out[IBEACON_ADV_LEN]);
+
+/* Scan response AD space: the same 31 bytes the advertisement gets, but a
+ * separate packet. The advertisement is full (30 of 31 bytes are Flags plus
+ * the iBeacon payload), so a name can only live here. */
+#define SCAN_RSP_MAX_LEN 31
+
+/* Pure function. Writes one Local Name AD structure into out:
+ *   [0]    length: 1 + the name bytes written
+ *   [1]    0x09 Complete Local Name, or 0x08 Shortened Local Name when the
+ *          name did not fit
+ *   [2..]  the name, without its terminator
+ * Returns the bytes written, or 0 for an empty name. Never writes more than
+ * SCAN_RSP_MAX_LEN. */
+size_t scan_rsp_build_name(const char *name, uint8_t out[SCAN_RSP_MAX_LEN]);

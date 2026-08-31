@@ -2,6 +2,7 @@
 #include "beacon_config.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -14,8 +15,13 @@
 
 static const char *TAG = "ble_beacon";
 
-/* Static storage required: NimBLE reads this after ble_beacon_start() returns. */
+/* Static storage required: NimBLE reads these after ble_beacon_start() returns. */
 static uint8_t s_adv_data[IBEACON_ADV_LEN];
+
+/* The scan response carries the device name. It has to be a second packet:
+ * the advertisement has 1 byte left of its 31, and a name needs at least 3. */
+static uint8_t s_scan_rsp[SCAN_RSP_MAX_LEN];
+static size_t  s_scan_rsp_len;
 
 /* Set by ble_hs_id_infer_auto() in on_sync(). */
 static uint8_t s_own_addr_type;
@@ -71,10 +77,24 @@ static void start_advertising(void)
 {
     struct ble_gap_adv_params adv_params = { 0 };
 
-    /* Both NON = ADV_NONCONN_IND. Nothing can connect, so no connected
-     * state ever competes with WiFi for radio time. */
+    /* conn_mode NON still means nothing can connect, so no connected state ever
+     * competes with WiFi for radio time. disc_mode GEN is what moves the PDU
+     * from ADV_NONCONN_IND to ADV_SCAN_IND -- see ble_gap_adv_type() in
+     * NimBLE, which picks the type off disc_mode once conn_mode is NON.
+     *
+     * The cost is real: the radio now opens a receive window after each
+     * advertisement in case a scanner sends SCAN_REQ, and answers it. This is
+     * no longer a transmit-only device. What it buys is a name in the scan
+     * response, without which the beacon shows up in every generic scanner as
+     * an anonymous MAC.
+     *
+     * Passive scanners, which is what iBeacon consumers are, never send
+     * SCAN_REQ and see the same advertisement as before, byte for byte.
+     *
+     * It also settles an inconsistency: the Flags byte has always said
+     * General Discoverable while disc_mode said otherwise. */
     adv_params.conn_mode = BLE_GAP_CONN_MODE_NON;
-    adv_params.disc_mode = BLE_GAP_DISC_MODE_NON;
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
     /* BLE_HCI_ADV_ITVL_NONCONN_MIN (160) looks like a floor but is a BT 4.x
      * leftover the validator ignores; the real minimum is 32 units. */
@@ -87,6 +107,13 @@ static void start_advertising(void)
         return;
     }
 
+    /* Not fatal: losing the name costs identification in a scanner list, not
+     * the beacon itself, so carry on advertising without it. */
+    rc = ble_gap_adv_rsp_set_data(s_scan_rsp, (int)s_scan_rsp_len);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "ble_gap_adv_rsp_set_data failed: rc=%d - advertising without a name", rc);
+    }
+
     rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
                            &adv_params, NULL, NULL);
     if (rc != 0) {
@@ -96,7 +123,7 @@ static void start_advertising(void)
 
     s_adv_running = true;
 
-    ESP_LOGI(TAG, "iBeacon advertising: itvl=%d ms (%u units), nonconnectable",
+    ESP_LOGI(TAG, "iBeacon advertising: itvl=%d ms (%u units), scannable, nonconnectable",
              BLE_ADV_INTERVAL_MS, (unsigned)adv_params.itvl_min);
 }
 
@@ -150,6 +177,11 @@ void ble_beacon_start(const device_id_t *id)
 
     ibeacon_build_payload(uuid, id->major, id->minor,
                           IBEACON_TX_POWER, s_adv_data);
+
+    /* The name is the SSID, which device_id_derive() built from this chip's own
+     * softAP MAC. Nothing here is a literal: every board names itself, and the
+     * two radios answer to the same string. */
+    s_scan_rsp_len = scan_rsp_build_name(id->ssid, s_scan_rsp);
 
     /* Not ESP_ERROR_CHECK: this allocates for the BT controller after WiFi
      * has taken its memory, so NO_MEM here is deterministic and aborting

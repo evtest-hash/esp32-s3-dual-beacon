@@ -3,9 +3,11 @@
 Makes a MuseLab ESP32-S3 Dongle broadcast two static beacons at once:
 
 - **WiFi side**: a scannable SSID (`S3-BEACON-XXXXXX`, suffix derived from the chip's MAC)
-- **BLE side**: a non-connectable iBeacon (UUID / Major / Minor)
+- **BLE side**: a non-connectable iBeacon (UUID / Major / Minor), answering to the same name as the SSID
 
-Both run continuously, with static content, transmit-only. The AP offers no services and DHCP is disabled -- its only purpose is to be visible to a scan.
+Both run continuously with static content. The AP offers no services and DHCP is disabled -- its only purpose is to be visible to a scan.
+
+The BLE side is scannable but not connectable (`ADV_SCAN_IND`): it answers a scanner's request with its name, so it appears in a generic tool as `S3-BEACON-XXXXXX` rather than an anonymous MAC. Passive scanners, which is what iBeacon consumers are, see exactly the same advertisement either way. The name lives in the scan response because the advertisement is full -- 30 of its 31 bytes are the Flags and the iBeacon payload.
 
 The onboard blue LED blinks at 1 Hz while the firmware is running. It is a liveness indicator only and carries no fault information; a boot loop shows up as a repeatedly interrupted blink.
 

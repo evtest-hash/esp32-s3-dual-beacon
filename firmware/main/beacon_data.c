@@ -34,3 +34,28 @@ void ibeacon_build_payload(const uint8_t uuid[16], uint16_t major, uint16_t mino
     out[28] = (uint8_t)(minor & 0xFF);
     out[29] = (uint8_t)tx_power;
 }
+
+size_t scan_rsp_build_name(const char *name, uint8_t out[SCAN_RSP_MAX_LEN])
+{
+    size_t len = strlen(name);
+    if (len == 0) {
+        return 0;
+    }
+
+    /* Two of the 31 bytes are the length and type fields themselves. */
+    const size_t max_name = SCAN_RSP_MAX_LEN - 2;
+
+    /* 0x09 Complete Local Name, 0x08 Shortened. Announcing a truncated name as
+     * Complete would be a lie no scanner can detect. */
+    uint8_t type = 0x09;
+    if (len > max_name) {
+        len = max_name;
+        type = 0x08;
+    }
+
+    out[0] = (uint8_t)(1 + len);
+    out[1] = type;
+    memcpy(out + 2, name, len);
+
+    return 2 + len;
+}

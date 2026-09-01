@@ -45,16 +45,27 @@ static int level_to_dbm(esp_power_level_t level)
     return ((int)level - 8) * 3;
 }
 
-/* Runs after nimble_port_init(), which is what enables the controller: setting
- * the power before that has nothing to set it on.
+/* Called from on_sync(), immediately before advertising starts -- NOT from
+ * ble_beacon_start().
  *
- * Both the requested and the actual level are logged rather than just the
- * request. What the radio was doing before this call is not something the
- * headers answer: the controller starts at esp_bt_controller_config_t's
- * txpwr_dft, while esp_ble_tx_power_set documents its own default for power
- * types never set. And the PHY init data can cap the result below the request
- * either way. The read-back is the only statement about this chip worth
- * believing, and it is what a measured RSSI delta should be compared to. */
+ * Setting the power straight after nimble_port_init() looks sufficient, since
+ * that call is what brings the controller up, but measurement says otherwise:
+ * the advertising instance created later comes up at the controller default of
+ * +9 dBm and ignores a P20 set before it existed. A/B on a MuseLab dongle, board
+ * and receiver both fixed in place: -41 dBm median (n=67) with the power set
+ * early, -29 dBm (n=79) with it set here. That 12 dB step is the +9 -> +20 dBm
+ * the two paths command, and a sweep of the whole ladder on the same board put
+ * -41 dBm exactly at the +9 dBm rung.
+ *
+ * on_sync() also runs again after a host reset, so this re-applies the level
+ * every time advertising is rebuilt rather than once at boot.
+ *
+ * The read-back is logged but is NOT proof. esp_ble_tx_power_get() reports the
+ * level the last advertising instance came up at, so before ble_gap_adv_start()
+ * it returns the PREVIOUS value, not the one just set. That is exactly how the
+ * early-set bug stayed invisible for three releases: it logged "controller
+ * reports 20 dBm" while advertising at 9. Only a measured RSSI delta settles
+ * this. */
 static void set_tx_power(void)
 {
     esp_err_t err = esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_TX_POWER_LEVEL);
@@ -149,6 +160,10 @@ static void on_sync(void)
         return;
     }
 
+    /* Before start_advertising(), not after: the level is latched into the
+     * advertising instance when that instance is created. */
+    set_tx_power();
+
     start_advertising();
 }
 
@@ -192,8 +207,6 @@ void ble_beacon_start(const device_id_t *id)
                  esp_err_to_name(err));
         return;
     }
-
-    set_tx_power();
 
     ble_hs_cfg.sync_cb  = on_sync;
     ble_hs_cfg.reset_cb = on_reset;

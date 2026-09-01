@@ -61,13 +61,18 @@ _Static_assert(WIFI_BEACON_INTERVAL_TU >= 100 && WIFI_BEACON_INTERVAL_TU <= 6000
  * transmit power (that is BLE_TX_POWER_LEVEL above); it is the RSSI a scanner
  * should see at 1 m, and scanners divide by it to estimate distance.
  *
- * It is therefore a MEASURED quantity, and changing BLE_TX_POWER_LEVEL
- * invalidates it: every scanner's distance estimate is then wrong by exactly
- * how stale this is. -59 was taken from the iBeacon convention and has never
- * been measured on this board, whose antenna matching network is itself
- * under-specified (hardware/README.md). Measure the median RSSI at 1 m and
- * write it back here. */
-#define IBEACON_TX_POWER          ((int8_t)-59)
+ * Measured, finally: -51 dBm is the median of 239 advertisements received at
+ * 1 m, line of sight, with the board on a USB charger clear of metal and
+ * running this firmware. The -59 it replaces was the iBeacon convention and
+ * had never been put on a board.
+ *
+ * Two things invalidate it, and both have already happened to this project
+ * once: changing BLE_TX_POWER_LEVEL, and changing the antenna matching network
+ * (hardware/README.md describes a rework that should raise radiated power by
+ * several dB). After either, re-measure the median RSSI at 1 m and write it
+ * back here -- otherwise every scanner's distance estimate is wrong by exactly
+ * how stale this value is. */
+#define IBEACON_TX_POWER          ((int8_t)-51)
 /* Advertising interval (ms). A coexistence choice, not a protocol floor. */
 #define BLE_ADV_INTERVAL_MS       100
 /* Below 20ms ble_gap_adv_validate rejects the interval: no advertising, and

@@ -11,7 +11,7 @@ The BLE side is scannable but not connectable (`ADV_SCAN_IND`): it answers a sca
 
 The onboard blue LED blinks at 1 Hz while the firmware is running. It is a liveness indicator only and carries no fault information; a boot loop shows up as a repeatedly interrupted blink.
 
-> **This firmware has never run on real hardware.** The host unit tests pass and it compiles under ESP-IDF v5.5.5, but no radio behavior has ever been observed on an actual chip. See [Hardware verification status](#hardware-verification-status).
+> **Verified on hardware.** Both beacons have been observed transmitting from a MuseLab ESP32-S3 Dongle, and each radio's transmit power has been measured against the value it was commanded. That measurement found a bug this firmware had shipped for three releases; see [Hardware verification status](#hardware-verification-status) for what is and is not established.
 
 ## Layout
 
@@ -29,9 +29,11 @@ Every tunable value lives in a single file, **`firmware/main/beacon_config.h`**:
 
 ### Transmit power
 
-`BLE_TX_POWER_LEVEL` and `WIFI_MAX_TX_POWER_QDBM` set the two radios' transmit power; both default to the maximum the hardware accepts. Neither is trusted blindly: the firmware reads the applied value back from the driver and logs it, because the PHY init data can cap either one below what was asked for.
+`BLE_TX_POWER_LEVEL` and `WIFI_MAX_TX_POWER_QDBM` set the two radios' transmit power; both default to the maximum the hardware accepts. The firmware logs what each driver reports back, but **only the WiFi read-back is worth believing**.
 
-`IBEACON_TX_POWER` is **not** a transmit power. It is the iBeacon "Measured Power" field -- the RSSI a scanner should see at 1 m -- and scanners divide by it to estimate distance. It is a value to be measured on a real board, and **changing `BLE_TX_POWER_LEVEL` invalidates it**. The shipped `-59` comes from the iBeacon convention and has never been measured on this hardware, so distance estimates from any scanner are currently uncalibrated.
+`esp_ble_tx_power_get()` reports the level the last advertising instance came up at, not the level just requested. Called before `ble_gap_adv_start()` it returns the previous value, and it will happily log a level the radio is not using. That is exactly how this firmware advertised at the +9 dBm controller default for three releases while logging `controller reports 20 dBm`. Only a measured RSSI delta settles what a radio is actually doing.
+
+`IBEACON_TX_POWER` is **not** a transmit power. It is the iBeacon "Measured Power" field -- the RSSI a scanner should see at 1 m -- and scanners divide by it to estimate distance. The shipped `-51` is measured on this board: the median of 239 advertisements received at 1 m, line of sight, on a USB charger clear of metal. **Changing `BLE_TX_POWER_LEVEL`, or reworking the antenna matching network, invalidates it** -- re-measure at 1 m and write the new value back.
 
 Note: the AP is an **open network** (`AP_PASSWORD` is `""`). This is intentional, not a placeholder -- see the comment in `firmware/main/beacon_config.h` for why (the AP offers no services worth protecting, and a cosmetic password would only be misleading in a public repo).
 
@@ -125,4 +127,21 @@ MIT -- see [LICENSE](LICENSE).
 
 ## Hardware verification status
 
-The radio behavior described above (WiFi AP visibility, iBeacon advertising, coexistence stability) has **never been verified on real hardware**. Only the host unit tests and the ESP-IDF compile have been verified. Treat this firmware as unflashed and unproven until someone runs it on an actual ESP32-S3 device and confirms it behaves as described.
+Run on a MuseLab ESP32-S3 Dongle (ESP32-S3FN8, chip rev v0.2) under ESP-IDF v5.5.5.
+
+**Verified**
+
+- Both beacons transmit. The softAP is scannable as `S3-BEACON-XXXXXX` and the iBeacon is received with the expected UUID, Major and Minor.
+- The scan response carries the name, so the device shows up as `S3-BEACON-XXXXXX` rather than an anonymous MAC.
+- WiFi and BLE coexist without either dropping out; advertisement and beacon rates were unchanged between a USB-host supply and a USB charger.
+- The blue LED blinks at 1 Hz.
+- **WiFi transmits at the power it is asked for.** `esp_wifi_get_max_tx_power()` reports 80 quarter-dBm, and a sweep of the whole ladder from +2 to +20 dBm moved the received RSSI by 20 dB, slope 1.07, with no flattening at the top.
+- **BLE now does too.** The same sweep from 0 to +20 dBm moved RSSI by 22 dB, slope 1.10. Before the fix in v0.4.0 the advertisement went out at the +9 dBm controller default: median RSSI -41 dBm (n=67), against -29 dBm (n=79) after, board and receiver fixed in place.
+
+**Known limitation, and it is the board, not the firmware**
+
+At 1 m line of sight the board is received about 20 dB weaker than a commercial 20 dBm access point several metres away. Since the power ladder stays linear to the top of its range, the loss is entirely after the power amplifier -- in the antenna matching network, which [`hardware/`](hardware/) shows does not implement the network Espressif's ESP32-S3 design guidelines call for. No firmware change reaches it.
+
+**Not verified**
+
+Long-term stability beyond a few hours, behaviour across a batch of boards, and anything about range in a deployment. RSSI here was read with a MacBook, which is a consumer receiver: the relative measurements above are solid, the absolute dBm figures carry the usual few dB of uncalibrated offset.
